@@ -1,0 +1,35 @@
+import pandas as pd
+
+# Temperature data for cities
+data = {
+    "Chennai": [28, 30, 32, 29, 31],
+    "Delhi": [15, 20, 35, 40, 25],
+    "Mumbai": [27, 28, 29, 28, 27]
+}
+
+df = pd.DataFrame(data)
+
+# 16. Mean temperature
+mean_temp = df.mean()
+
+# 17. Standard deviation
+std_temp = df.std()
+
+# 18. Temperature range
+temp_range = df.max() - df.min()
+
+# 19. Highest range and most consistent city
+highest_range_city = temp_range.idxmax()
+consistent_city = std_temp.idxmin()
+
+print("Mean Temperature:")
+print(mean_temp)
+
+print("\nStandard Deviation:")
+print(std_temp)
+
+print("\nTemperature Range:")
+print(temp_range)
+
+print("\nCity with Highest Temperature Range:", highest_range_city)
+print("Most Consistent City:", consistent_city)
