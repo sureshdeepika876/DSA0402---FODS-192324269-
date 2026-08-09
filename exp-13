@@ -1,0 +1,15 @@
+import pandas as pd
+
+# Read stock data from CSV file
+data = pd.read_csv("stock_data.csv")
+
+# Calculate statistics
+mean_price = data["Close"].mean()
+std_price = data["Close"].std()
+min_price = data["Close"].min()
+max_price = data["Close"].max()
+
+print("Average Closing Price:", mean_price)
+print("Standard Deviation:", std_price)
+print("Minimum Closing Price:", min_price)
+print("Maximum Closing Price:", max_price)
