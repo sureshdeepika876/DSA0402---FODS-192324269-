@@ -1,0 +1,63 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+
+# Create sample customer churn dataset
+data = {
+    'Usage_Minutes': [200, 450, 120, 600, 300, 150, 700, 250, 500, 100,
+                      350, 550, 180, 650, 400],
+    'Contract_Duration': [24, 36, 6, 48, 12, 5, 60, 18, 36, 3,
+                          24, 48, 8, 60, 30],
+    'Monthly_Charges': [50, 70, 40, 80, 55, 35, 90, 45, 75, 30,
+                        60, 85, 42, 95, 65],
+    'Churn': [0, 0, 1, 0, 0, 1, 0, 0, 0, 1,
+              0, 0, 1, 0, 0]
+}
+
+df = pd.DataFrame(data)
+
+# Separate features and target
+X = df[['Usage_Minutes', 'Contract_Duration', 'Monthly_Charges']]
+y = df['Churn']
+
+# Split dataset into training and testing data
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Standardize the features
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# Create and train Logistic Regression model
+model = LogisticRegression()
+model.fit(X_train, y_train)
+
+# Get input from user
+print("\nEnter details of the new customer:")
+
+usage = float(input("Usage minutes: "))
+contract = float(input("Contract duration (months): "))
+charges = float(input("Monthly charges: "))
+
+# Create input DataFrame
+new_customer = pd.DataFrame(
+    [[usage, contract, charges]],
+    columns=['Usage_Minutes', 'Contract_Duration', 'Monthly_Charges']
+)
+
+# Scale the new customer's data
+new_customer_scaled = scaler.transform(new_customer)
+
+# Predict churn
+prediction = model.predict(new_customer_scaled)
+
+# Display result
+print("\n--- Customer Churn Prediction ---")
+
+if prediction[0] == 1:
+    print("Prediction: Customer is likely to CHURN.")
+else:
+    print("Prediction: Customer is NOT likely to churn.")
