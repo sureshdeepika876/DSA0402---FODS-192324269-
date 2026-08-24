@@ -1,0 +1,25 @@
+import pandas as pd
+from scipy import stats
+
+# Read customer reviews
+data = pd.read_csv("customer_reviews.csv")
+
+# Customer ratings
+ratings = data["Rating"]
+
+# Calculate mean
+mean_rating = ratings.mean()
+
+# Calculate 95% confidence interval
+confidence_interval = stats.t.interval(
+    0.95,
+    len(ratings) - 1,
+    loc=mean_rating,
+    scale=stats.sem(ratings)
+)
+
+print("Average Rating:", round(mean_rating, 2))
+print("95% Confidence Interval:",
+      round(confidence_interval[0], 2),
+      "to",
+      round(confidence_interval[1], 2))
