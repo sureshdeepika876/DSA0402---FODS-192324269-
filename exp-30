@@ -1,0 +1,37 @@
+import numpy as np
+from sklearn.neighbors import KNeighborsClassifier
+
+# Patient data
+# Features: Fever, Cough, Fatigue
+X = np.array([
+    [1, 1, 1],
+    [1, 1, 0],
+    [1, 0, 1],
+    [0, 1, 0],
+    [0, 0, 0],
+    [0, 1, 1],
+    [1, 1, 1],
+    [0, 0, 1]
+])
+
+# 0 = No condition, 1 = Condition
+y = np.array([1, 1, 1, 0, 0, 0, 1, 0])
+
+# User input
+fever = int(input("Enter fever (0/1): "))
+cough = int(input("Enter cough (0/1): "))
+fatigue = int(input("Enter fatigue (0/1): "))
+k = int(input("Enter number of neighbors (k): "))
+
+# Create and train KNN model
+model = KNeighborsClassifier(n_neighbors=k)
+model.fit(X, y)
+
+# Prediction
+new_patient = [[fever, cough, fatigue]]
+prediction = model.predict(new_patient)
+
+if prediction[0] == 1:
+    print("Prediction: Patient has the medical condition.")
+else:
+    print("Prediction: Patient does not have the medical condition.")
