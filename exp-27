@@ -1,0 +1,37 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Read CSV file
+data = pd.read_csv("soccer_players.csv")
+
+# Top 5 players by goals
+top_goals = data.sort_values("Goals", ascending=False).head(5)
+print("Top 5 Goal Scorers:")
+print(top_goals[["Name", "Goals"]])
+
+# Top 5 players by salary
+top_salary = data.sort_values("Salary", ascending=False).head(5)
+print("\nTop 5 Highest Salaries:")
+print(top_salary[["Name", "Salary"]])
+
+# Average age
+average_age = data["Age"].mean()
+print("\nAverage Age:", round(average_age, 2))
+
+# Players above average age
+above_average = data[data["Age"] > average_age]
+print("\nPlayers Above Average Age:")
+print(above_average["Name"])
+
+# Position distribution
+position_count = data["Position"].value_counts()
+
+print("\nPlayers by Position:")
+print(position_count)
+
+# Bar chart
+position_count.plot(kind="bar")
+plt.title("Players by Position")
+plt.xlabel("Position")
+plt.ylabel("Number of Players")
+plt.show()
