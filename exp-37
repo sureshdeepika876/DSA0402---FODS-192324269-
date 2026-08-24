@@ -1,0 +1,60 @@
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+
+# Create customer dataset
+data = {
+    'Annual_Spending': [2000, 2500, 3000, 8000, 9000, 8500,
+                        1500, 1800, 2200, 7500, 9500, 8200,
+                        4000, 4500, 5000],
+    
+    'Number_of_Purchases': [10, 12, 15, 35, 40, 38,
+                            8, 9, 11, 32, 42, 36,
+                            20, 22, 25],
+    
+    'Average_Order_Value': [200, 208, 200, 229, 225, 224,
+                            188, 200, 200, 234, 226, 228,
+                            200, 205, 200]
+}
+
+df = pd.DataFrame(data)
+
+# Select features
+X = df[['Annual_Spending',
+        'Number_of_Purchases',
+        'Average_Order_Value']]
+
+# Standardize the data
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Create K-Means model with 3 clusters
+model = KMeans(n_clusters=3, random_state=42, n_init=10)
+
+# Train the model
+model.fit(X_scaled)
+
+# Get new customer details
+print("\nEnter shopping details of the new customer:")
+
+spending = float(input("Annual spending: "))
+purchases = int(input("Number of purchases: "))
+order_value = float(input("Average order value: "))
+
+# Create new customer DataFrame
+new_customer = pd.DataFrame(
+    [[spending, purchases, order_value]],
+    columns=['Annual_Spending',
+             'Number_of_Purchases',
+             'Average_Order_Value']
+)
+
+# Scale new customer data
+new_customer_scaled = scaler.transform(new_customer)
+
+# Predict customer segment
+cluster = model.predict(new_customer_scaled)
+
+# Display result
+print("\n--- Customer Segmentation Result ---")
+print("Customer is assigned to Segment:", cluster[0] + 1)
