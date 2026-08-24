@@ -1,0 +1,48 @@
+import pandas as pd
+from sklearn.tree import DecisionTreeRegressor
+
+# Load dataset
+data = pd.read_csv("car_data.csv")
+
+# Convert categorical data to numbers
+data["Brand"] = data["Brand"].astype("category").cat.codes
+data["Engine"] = data["Engine"].astype("category").cat.codes
+
+# Features and target
+X = data[["Mileage", "Age", "Brand", "Engine"]]
+y = data["Price"]
+
+# CART model
+model = DecisionTreeRegressor(random_state=42)
+model.fit(X, y)
+
+# New car input
+mileage = int(input("Enter mileage: "))
+age = int(input("Enter age: "))
+brand = int(input("Enter brand code: "))
+engine = int(input("Enter engine code: "))
+
+new_car = [[mileage, age, brand, engine]]
+
+# Predict price
+prediction = model.predict(new_car)
+
+print("\nPredicted Car Price:", round(prediction[0], 2))
+
+# Display decision path
+node_indicator = model.decision_path(new_car)
+leaf_id = model.apply(new_car)
+
+print("\nDecision Path:")
+for node in node_indicator.indices:
+    if node == leaf_id[0]:
+        print("Reached prediction node:", node)
+        break
+
+    feature = model.tree_.feature[node]
+    threshold = model.tree_.threshold[node]
+
+    if new_car[0][feature] <= threshold:
+        print(f"Feature {X.columns[feature]} <= {threshold:.2f}")
+    else:
+        print(f"Feature {X.columns[feature]} > {threshold:.2f}")
