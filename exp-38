@@ -1,0 +1,76 @@
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+
+# Create customer dataset
+data = {
+    'Age': [22, 25, 28, 35, 40, 42, 23, 26, 30, 38,
+            45, 48, 32, 36, 27],
+
+    'Annual_Spending': [1500, 1800, 2000, 6000, 7500, 8000,
+                        1700, 2200, 3000, 6500, 8500, 9000,
+                        4500, 5500, 2500],
+
+    'Number_of_Purchases': [8, 10, 12, 30, 35, 40,
+                            9, 11, 15, 32, 42, 45,
+                            22, 28, 14],
+
+    'Browsing_Hours': [5, 6, 7, 15, 18, 20,
+                       5, 8, 9, 16, 22, 24,
+                       12, 14, 8]
+}
+
+df = pd.DataFrame(data)
+
+# Select features for clustering
+X = df[['Age',
+        'Annual_Spending',
+        'Number_of_Purchases',
+        'Browsing_Hours']]
+
+# Standardize the features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Create K-Means model
+model = KMeans(n_clusters=3, random_state=42, n_init=10)
+
+# Train the model
+model.fit(X_scaled)
+
+# Assign clusters to customers
+df['Customer_Segment'] = model.labels_ + 1
+
+# Display segmented customers
+print("\n--- Customer Segmentation ---")
+print(df)
+
+# Display average characteristics of each segment
+print("\n--- Segment Characteristics ---")
+print(df.groupby('Customer_Segment').mean())
+
+# Get new customer details
+print("\nEnter details of a new customer:")
+
+age = float(input("Age: "))
+spending = float(input("Annual spending: "))
+purchases = int(input("Number of purchases: "))
+browsing = float(input("Browsing hours per month: "))
+
+# Create new customer DataFrame
+new_customer = pd.DataFrame(
+    [[age, spending, purchases, browsing]],
+    columns=['Age',
+             'Annual_Spending',
+             'Number_of_Purchases',
+             'Browsing_Hours']
+)
+
+# Scale new customer data
+new_customer_scaled = scaler.transform(new_customer)
+
+# Predict customer segment
+segment = model.predict(new_customer_scaled)
+
+print("\n--- New Customer Segmentation ---")
+print("Customer is assigned to Segment:", segment[0] + 1)
