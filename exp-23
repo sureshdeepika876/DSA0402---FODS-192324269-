@@ -1,0 +1,23 @@
+import numpy as np
+from scipy.stats import ttest_ind
+
+# Conversion rates (%) for two website designs
+A = np.array([8.2, 7.5, 8.8, 9.0, 7.9, 8.5, 8.1, 7.8, 8.7, 8.3])
+B = np.array([10.1, 9.5, 10.8, 11.0, 9.8, 10.5, 10.2, 9.7, 10.6, 10.3])
+
+# Mean conversion rates
+mean_A = np.mean(A)
+mean_B = np.mean(B)
+
+# Independent t-test
+t_stat, p_value = ttest_ind(A, B)
+
+print("Mean Conversion Rate - Design A:", round(mean_A, 2))
+print("Mean Conversion Rate - Design B:", round(mean_B, 2))
+print("T-statistic:", round(t_stat, 2))
+print("P-value:", round(p_value, 4))
+
+if p_value < 0.05:
+    print("There is a statistically significant difference.")
+else:
+    print("There is no statistically significant difference.")
