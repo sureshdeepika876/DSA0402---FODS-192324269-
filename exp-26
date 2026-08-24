@@ -1,0 +1,32 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import ttest_ind
+
+# Clinical trial data
+control = np.array([70, 72, 68, 71, 69, 73, 70, 68, 72, 71])
+treatment = np.array([60, 62, 59, 61, 58, 63, 60, 57, 61, 59])
+
+# Calculate means
+mean_control = np.mean(control)
+mean_treatment = np.mean(treatment)
+
+# Perform t-test
+t_stat, p_value = ttest_ind(control, treatment)
+
+print("Control Mean:", mean_control)
+print("Treatment Mean:", mean_treatment)
+print("T-statistic:", round(t_stat, 2))
+print("P-value:", round(p_value, 4))
+
+# Hypothesis decision
+if p_value < 0.05:
+    print("There is a statistically significant difference.")
+else:
+    print("There is no statistically significant difference.")
+
+# Visualization
+plt.bar(["Control", "Treatment"],
+        [mean_control, mean_treatment])
+plt.ylabel("Mean Measurement")
+plt.title("Control vs Treatment")
+plt.show()
