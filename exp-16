@@ -1,0 +1,17 @@
+# Open and read the text file
+with open("sample_text.txt", "r") as file:
+    text = file.read().lower()
+
+# Split text into words
+words = text.split()
+
+# Calculate word frequency
+frequency = {}
+
+for word in words:
+    frequency[word] = frequency.get(word, 0) + 1
+
+# Display frequency
+print("Word Frequency:")
+for word, count in frequency.items():
+    print(word, ":", count)
