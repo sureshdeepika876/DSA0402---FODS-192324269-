@@ -1,0 +1,37 @@
+import numpy as np
+import pandas as pd
+
+# Read CSV file
+data = pd.read_csv("rare_elements.csv")
+
+# User input
+n = int(input("Enter sample size: "))
+confidence = float(input("Enter confidence level (e.g., 0.95): "))
+precision = float(input("Enter desired precision: "))
+
+# Select random sample
+sample = data.iloc[:, 0].sample(n=n, random_state=1).values
+
+# Point estimate
+mean = np.mean(sample)
+
+# Standard deviation and standard error
+std = np.std(sample, ddof=1)
+se = std / np.sqrt(n)
+
+# Z-value for confidence level
+z = 1.96 if confidence == 0.95 else 2.576
+
+# Confidence interval
+margin = z * se
+lower = mean - margin
+upper = mean + margin
+
+print("\nSample Mean:", round(mean, 2))
+print("Confidence Interval:", round(lower, 2), "to", round(upper, 2))
+print("Margin of Error:", round(margin, 2))
+
+if margin <= precision:
+    print("Desired precision achieved.")
+else:
+    print("Increase the sample size for desired precision.")
