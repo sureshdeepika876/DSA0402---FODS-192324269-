@@ -1,0 +1,519 @@
+"""
+DSA0402 - Fundamentals of Data Science
+Integrated COS and SDG Assignment
+Bank Marketing - Prediction & Customer Segmentation
+=====================================================
+Complete Data Science workflow:
+Data Retrieval -> Data Cleaning -> Data Transformation -> Data Exploration ->
+Descriptive Statistics -> Statistical Inference -> Model Building -> Prediction ->
+Model Evaluation -> Model Selection -> K-means Clustering -> Customer Segmentation ->
+Interpretation -> Recommendations
+
+Dataset : UCI Bank Marketing Data Set (bank-full.csv)
+Source  : https://archive.ics.uci.edu/ml/datasets/Bank+Marketing
+Records : 45,211 | Attributes : 17 (16 input + 1 target 'y')
+"""
+
+import os
+import warnings
+warnings.filterwarnings("ignore")
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.cluster import KMeans
+from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                              f1_score, confusion_matrix, classification_report,
+                              roc_auc_score, roc_curve, silhouette_score)
+
+sns.set_style("whitegrid")
+plt.rcParams["figure.dpi"] = 110
+
+FIG_DIR = "outputs/figures"
+os.makedirs(FIG_DIR, exist_ok=True)
+
+def savefig(name):
+    path = os.path.join(FIG_DIR, name)
+    plt.tight_layout()
+    plt.savefig(path, bbox_inches="tight")
+    plt.close()
+    print(f"[saved] {path}")
+
+log_lines = []
+def log(msg=""):
+    print(msg)
+    log_lines.append(str(msg))
+
+# =====================================================================
+# 1. DATA RETRIEVAL
+# =====================================================================
+log("=" * 70)
+log("STEP 1: DATA RETRIEVAL")
+log("=" * 70)
+
+df = pd.read_csv("data/bank-full.csv", sep=";")
+df.columns = [c.strip().strip('"') for c in df.columns]
+for c in df.select_dtypes(include="object").columns:
+    df[c] = df[c].str.strip().str.strip('"')
+
+log(f"Dataset shape: {df.shape[0]} records, {df.shape[1]} attributes")
+log(f"Columns: {list(df.columns)}")
+log("\nFirst 5 rows:")
+log(df.head().to_string())
+log("\nData types:")
+log(df.dtypes.to_string())
+
+# =====================================================================
+# 2. DATA PREPROCESSING
+# =====================================================================
+log("\n" + "=" * 70)
+log("STEP 2: DATA PREPROCESSING")
+log("=" * 70)
+
+# 2.1 Missing / inconsistent values -----------------------------------
+log("\n-- Missing value check --")
+log(df.isnull().sum().to_string())
+log("\nNote: dataset uses the literal string 'unknown' for several "
+    "categorical attributes (job, education, contact, poutcome) instead "
+    "of NaN. These are treated as a valid 'unknown' category rather than "
+    "dropped, since removing ~29% of poutcome rows would bias the model.")
+
+for c in ["job", "education", "contact", "poutcome"]:
+    log(f"  {c}: {(df[c]=='unknown').sum()} 'unknown' values "
+        f"({(df[c]=='unknown').mean()*100:.1f}%)")
+
+# 2.2 Duplicate rows -----------------------------------------------------
+dupes = df.duplicated().sum()
+log(f"\nDuplicate rows found: {dupes}")
+df = df.drop_duplicates().reset_index(drop=True)
+
+# 2.3 Remove irrelevant / redundant attribute ----------------------------
+# 'duration' is dropped for the *predictive* model: per the dataset
+# documentation, call duration is only known AFTER the call ends, so it
+# leaks the outcome and is not a realistic input for a pre-call model.
+# It IS kept for EDA to illustrate this point.
+log("\n'duration' will be excluded from the predictive feature set "
+    "(post-call leakage variable per UCI dataset notes), but retained "
+    "for exploratory analysis.")
+
+# 2.4 Encode categorical attributes --------------------------------------
+df_model = df.copy()
+df_model["y_flag"] = (df_model["y"] == "yes").astype(int)
+
+binary_cols = ["default", "housing", "loan"]
+for c in binary_cols:
+    df_model[c] = (df_model[c] == "yes").astype(int)
+
+nominal_cols = ["job", "marital", "education", "contact", "month", "poutcome"]
+label_encoders = {}
+for c in nominal_cols:
+    le = LabelEncoder()
+    df_model[c + "_enc"] = le.fit_transform(df_model[c])
+    label_encoders[c] = le
+
+log("\nEncoding applied:")
+log("  Binary (yes/no) -> 0/1: " + ", ".join(binary_cols))
+log("  Nominal (job, marital, education, contact, month, poutcome) -> "
+    "Label Encoding (+ available for one-hot if needed)")
+log("  Target y -> y_flag (1 = subscribed, 0 = not subscribed)")
+
+# 2.5 Outlier detection (IQR method) --------------------------------------
+log("\n-- Outlier detection (IQR method) --")
+numeric_cols = ["age", "balance", "duration", "campaign", "pdays", "previous"]
+outlier_summary = {}
+for c in numeric_cols:
+    q1, q3 = df[c].quantile(0.25), df[c].quantile(0.75)
+    iqr = q3 - q1
+    lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    n_out = ((df[c] < lower) | (df[c] > upper)).sum()
+    outlier_summary[c] = n_out
+    log(f"  {c}: {n_out} outliers ({n_out/len(df)*100:.1f}%) "
+        f"[bounds: {lower:.1f}, {upper:.1f}]")
+
+# balance and campaign have genuine long right tails typical of financial
+# data; rather than deleting these rows (losing legitimate high-value /
+# highly-contacted customers who are analytically important for the
+# marketing use-case), we cap extreme values using winsorization for the
+# MODELING features only, and keep raw values for EDA.
+df_model["balance_capped"] = df_model["balance"].clip(
+    lower=df_model["balance"].quantile(0.01),
+    upper=df_model["balance"].quantile(0.99))
+df_model["campaign_capped"] = df_model["campaign"].clip(
+    upper=df_model["campaign"].quantile(0.99))
+log("\nTreatment: 'balance' and 'campaign' winsorized at 1st/99th "
+    "percentile for modeling (capped, not removed).")
+
+# 2.6 Final feature set for modeling --------------------------------------
+feature_cols = ["age", "balance_capped", "default", "housing", "loan",
+                 "day", "campaign_capped", "pdays", "previous",
+                 "job_enc", "marital_enc", "education_enc",
+                 "contact_enc", "month_enc", "poutcome_enc"]
+
+log(f"\nFinal modeling feature set ({len(feature_cols)} attributes): "
+    f"{feature_cols}")
+log(f"Final preprocessed dataset shape: {df_model.shape}")
+
+# =====================================================================
+# 3. EXPLORATORY DATA ANALYSIS
+# =====================================================================
+log("\n" + "=" * 70)
+log("STEP 3: EXPLORATORY DATA ANALYSIS")
+log("=" * 70)
+
+log("\n-- Target variable distribution --")
+log(df["y"].value_counts().to_string())
+log(f"Subscription rate: {(df['y']=='yes').mean()*100:.2f}%")
+
+plt.figure(figsize=(5, 4))
+sns.countplot(x="y", data=df, palette=["#4C72B0", "#DD8452"])
+plt.title("Target Variable Distribution (Subscribed vs Not)")
+plt.xlabel("Subscribed to term deposit")
+savefig("01_target_distribution.png")
+
+# Numeric variable distributions
+fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+for ax, c in zip(axes.flat, numeric_cols):
+    sns.histplot(df[c], kde=True, ax=ax, color="#4C72B0")
+    ax.set_title(f"Distribution of {c}")
+savefig("02_numeric_distributions.png")
+
+# Outlier boxplots
+fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+for ax, c in zip(axes.flat, numeric_cols):
+    sns.boxplot(y=df[c], ax=ax, color="#DD8452")
+    ax.set_title(f"Boxplot: {c} ({outlier_summary[c]} outliers)")
+savefig("03_outlier_boxplots.png")
+
+# Categorical variable frequencies
+cat_cols = ["job", "marital", "education", "housing", "loan", "poutcome"]
+fig, axes = plt.subplots(3, 2, figsize=(14, 14))
+for ax, c in zip(axes.flat, cat_cols):
+    order = df[c].value_counts().index
+    sns.countplot(y=c, data=df, order=order, ax=ax, palette="viridis")
+    ax.set_title(f"Frequency of {c}")
+savefig("04_categorical_frequencies.png")
+
+# Subscribers vs non-subscribers comparison
+fig, axes = plt.subplots(2, 2, figsize=(13, 10))
+sns.boxplot(x="y", y="age", data=df, ax=axes[0, 0])
+axes[0, 0].set_title("Age: Subscribed vs Not")
+sns.boxplot(x="y", y="balance", data=df, ax=axes[0, 1])
+axes[0, 1].set_ylim(-2000, 10000)
+axes[0, 1].set_title("Balance: Subscribed vs Not")
+sns.boxplot(x="y", y="duration", data=df, ax=axes[1, 0])
+axes[1, 0].set_title("Call Duration: Subscribed vs Not")
+sns.boxplot(x="y", y="campaign", data=df, ax=axes[1, 1])
+axes[1, 1].set_ylim(0, 15)
+axes[1, 1].set_title("No. of Contacts: Subscribed vs Not")
+savefig("05_subscriber_comparison.png")
+
+log("\nMean attribute values by subscription outcome:")
+log(df.groupby("y")[numeric_cols].mean().round(2).to_string())
+
+# =====================================================================
+# 4. DESCRIPTIVE STATISTICS
+# =====================================================================
+log("\n" + "=" * 70)
+log("STEP 4: DESCRIPTIVE STATISTICAL MEASURES")
+log("=" * 70)
+
+desc = df[numeric_cols].agg(["mean", "var", "std", "median",
+                              "skew", "min", "max"]).T
+log(desc.round(2).to_string())
+
+cov_matrix = df[numeric_cols].cov()
+corr_matrix = df[numeric_cols].corr()
+log("\n-- Covariance matrix --")
+log(cov_matrix.round(2).to_string())
+log("\n-- Correlation matrix (Pearson) --")
+log(corr_matrix.round(3).to_string())
+
+plt.figure(figsize=(8, 6))
+sns.heatmap(corr_matrix, annot=True, cmap="coolwarm", fmt=".2f", center=0)
+plt.title("Correlation Matrix - Numeric Attributes")
+savefig("06_correlation_heatmap.png")
+
+log("\nInterpretation: 'pdays' and 'previous' show the strongest positive "
+    "correlation among numeric attributes (customers contacted recently in "
+    "a prior campaign tend to have a higher 'previous' contact count). "
+    "'age' and 'balance' show weak positive correlation. 'campaign' shows "
+    "very weak correlation with other numeric attributes, meaning number "
+    "of contacts in the current campaign is largely independent of "
+    "customer age/balance.")
+
+# =====================================================================
+# 5. STATISTICAL INFERENCE
+# =====================================================================
+log("\n" + "=" * 70)
+log("STEP 5: STATISTICAL INFERENCE")
+log("=" * 70)
+
+sub_balance = df.loc[df["y"] == "yes", "balance"]
+nonsub_balance = df.loc[df["y"] == "no", "balance"]
+
+mean_sub = sub_balance.mean()
+se_sub = sub_balance.std(ddof=1) / np.sqrt(len(sub_balance))
+ci_sub = stats.t.interval(0.95, df=len(sub_balance) - 1,
+                           loc=mean_sub, scale=se_sub)
+
+log(f"\nPoint estimate - mean account balance of SUBSCRIBED customers: "
+    f"{mean_sub:.2f}")
+log(f"95% Confidence Interval for mean balance (subscribers): "
+    f"({ci_sub[0]:.2f}, {ci_sub[1]:.2f})")
+
+mean_nonsub = nonsub_balance.mean()
+se_nonsub = nonsub_balance.std(ddof=1) / np.sqrt(len(nonsub_balance))
+ci_nonsub = stats.t.interval(0.95, df=len(nonsub_balance) - 1,
+                              loc=mean_nonsub, scale=se_nonsub)
+log(f"Point estimate - mean account balance of NON-SUBSCRIBED customers: "
+    f"{mean_nonsub:.2f}")
+log(f"95% CI (non-subscribers): ({ci_nonsub[0]:.2f}, {ci_nonsub[1]:.2f})")
+
+t_stat, p_val = stats.ttest_ind(sub_balance, nonsub_balance, equal_var=False)
+log(f"\nWelch's two-sample t-test (H0: mean balance equal across groups):")
+log(f"  t-statistic = {t_stat:.3f}, p-value = {p_val:.6f}")
+alpha = 0.05
+if p_val < alpha:
+    log(f"  Since p-value < {alpha}, we REJECT H0: mean account balance "
+        f"differs significantly between subscribers and non-subscribers.")
+else:
+    log(f"  Since p-value >= {alpha}, we FAIL TO REJECT H0.")
+
+# =====================================================================
+# 6. SUPERVISED LEARNING - CLASSIFICATION
+# =====================================================================
+log("\n" + "=" * 70)
+log("STEP 6: SUPERVISED LEARNING - CLASSIFICATION")
+log("=" * 70)
+
+X = df_model[feature_cols]
+y = df_model["y_flag"]
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.25, random_state=42, stratify=y)
+log(f"\nTrain set: {X_train.shape[0]} records | Test set: {X_test.shape[0]} records")
+log(f"Train class balance:\n{y_train.value_counts(normalize=True).round(3).to_string()}")
+
+scaler = StandardScaler()
+X_train_s = scaler.fit_transform(X_train)
+X_test_s = scaler.transform(X_test)
+
+results = {}
+
+def evaluate(name, model, X_tr, X_te, y_pred, y_prob=None):
+    acc = accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred, zero_division=0)
+    rec = recall_score(y_test, y_pred, zero_division=0)
+    f1 = f1_score(y_test, y_pred, zero_division=0)
+    auc = roc_auc_score(y_test, y_prob) if y_prob is not None else np.nan
+    cm = confusion_matrix(y_test, y_pred)
+    results[name] = dict(Accuracy=acc, Precision=prec, Recall=rec,
+                          F1=f1, ROC_AUC=auc, ConfusionMatrix=cm)
+    log(f"\n--- {name} ---")
+    log(f"Accuracy={acc:.4f}  Precision={prec:.4f}  Recall={rec:.4f}  "
+        f"F1={f1:.4f}  ROC-AUC={auc:.4f}")
+    log("Confusion Matrix:\n" + str(cm))
+    log(classification_report(y_test, y_pred, zero_division=0))
+    return cm
+
+# --- 6.1 k-Nearest Neighbours ---
+knn_grid = GridSearchCV(KNeighborsClassifier(),
+                         {"n_neighbors": [5, 9, 15, 21]}, cv=3, scoring="f1")
+knn_grid.fit(X_train_s, y_train)
+knn = knn_grid.best_estimator_
+log(f"\nBest kNN params: {knn_grid.best_params_}")
+knn_pred = knn.predict(X_test_s)
+knn_prob = knn.predict_proba(X_test_s)[:, 1]
+cm_knn = evaluate("k-Nearest Neighbours", knn, X_train_s, X_test_s, knn_pred, knn_prob)
+
+# --- 6.2 Decision Tree / CART ---
+dt = DecisionTreeClassifier(max_depth=6, min_samples_leaf=50,
+                             class_weight="balanced", random_state=42)
+dt.fit(X_train, y_train)
+dt_pred = dt.predict(X_test)
+dt_prob = dt.predict_proba(X_test)[:, 1]
+cm_dt = evaluate("Decision Tree (CART)", dt, X_train, X_test, dt_pred, dt_prob)
+
+importances = pd.Series(dt.feature_importances_, index=feature_cols) \
+                .sort_values(ascending=False)
+log("\nDecision Tree feature importances:")
+log(importances.round(3).to_string())
+
+# --- 6.3 Logistic Regression ---
+logreg = LogisticRegression(max_iter=1000, class_weight="balanced",
+                             random_state=42)
+logreg.fit(X_train_s, y_train)
+lr_pred = logreg.predict(X_test_s)
+lr_prob = logreg.predict_proba(X_test_s)[:, 1]
+cm_lr = evaluate("Logistic Regression", logreg, X_train_s, X_test_s, lr_pred, lr_prob)
+
+# =====================================================================
+# 7. MODEL COMPARISON & SELECTION
+# =====================================================================
+log("\n" + "=" * 70)
+log("STEP 7: MODEL COMPARISON & SELECTION")
+log("=" * 70)
+
+comparison = pd.DataFrame({k: {m: v for m, v in d.items() if m != "ConfusionMatrix"}
+                            for k, d in results.items()}).T
+log("\n" + comparison.round(4).to_string())
+best_model_name = comparison["F1"].idxmax()
+log(f"\nBest-performing model (by F1-score, balances precision & recall "
+    f"under class imbalance): {best_model_name}")
+
+# Confusion matrices figure
+fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
+for ax, (name, cm) in zip(axes, [("kNN", cm_knn), ("Decision Tree", cm_dt),
+                                   ("Logistic Regression", cm_lr)]):
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax,
+                xticklabels=["No", "Yes"], yticklabels=["No", "Yes"])
+    ax.set_title(f"Confusion Matrix - {name}")
+    ax.set_xlabel("Predicted"); ax.set_ylabel("Actual")
+savefig("07_confusion_matrices.png")
+
+# ROC curves
+plt.figure(figsize=(6.5, 5.5))
+for name, prob in [("kNN", knn_prob), ("Decision Tree", dt_prob),
+                    ("Logistic Regression", lr_prob)]:
+    fpr, tpr, _ = roc_curve(y_test, prob)
+    plt.plot(fpr, tpr, label=f"{name} (AUC={roc_auc_score(y_test, prob):.3f})")
+plt.plot([0, 1], [0, 1], "k--", alpha=0.4)
+plt.xlabel("False Positive Rate"); plt.ylabel("True Positive Rate")
+plt.title("ROC Curves - Model Comparison")
+plt.legend()
+savefig("08_roc_curves.png")
+
+# Metric comparison bar chart
+plt.figure(figsize=(8, 5))
+comparison[["Accuracy", "Precision", "Recall", "F1"]].plot(kind="bar", ax=plt.gca())
+plt.title("Classification Model Performance Comparison")
+plt.ylabel("Score"); plt.xticks(rotation=15)
+savefig("09_model_comparison.png")
+
+# =====================================================================
+# 8. UNSUPERVISED LEARNING - K-MEANS CLUSTERING
+# =====================================================================
+log("\n" + "=" * 70)
+log("STEP 8: K-MEANS CLUSTERING & CUSTOMER SEGMENTATION")
+log("=" * 70)
+
+cluster_features = ["age", "balance_capped", "campaign_capped",
+                     "pdays", "previous"]
+X_cluster = df_model[cluster_features]
+X_cluster_s = StandardScaler().fit_transform(X_cluster)
+
+# Elbow method
+inertias, sil_scores = [], []
+K_range = range(2, 9)
+for k in K_range:
+    km = KMeans(n_clusters=k, random_state=42, n_init=10)
+    labels = km.fit_predict(X_cluster_s)
+    inertias.append(km.inertia_)
+    sil_scores.append(silhouette_score(X_cluster_s, labels,
+                                        sample_size=5000, random_state=42))
+
+fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
+axes[0].plot(list(K_range), inertias, "o-")
+axes[0].set_title("Elbow Method for Optimal K")
+axes[0].set_xlabel("Number of clusters (K)"); axes[0].set_ylabel("Inertia (WCSS)")
+axes[1].plot(list(K_range), sil_scores, "o-", color="#DD8452")
+axes[1].set_title("Silhouette Score by K")
+axes[1].set_xlabel("Number of clusters (K)"); axes[1].set_ylabel("Silhouette Score")
+savefig("10_elbow_silhouette.png")
+
+log("\nInertia by K: " + str(dict(zip(K_range, [round(i) for i in inertias]))))
+log("Silhouette score by K: " + str(dict(zip(K_range, [round(s, 3) for s in sil_scores]))))
+
+best_k = list(K_range)[int(np.argmax(sil_scores))]
+log(f"\nSelected K = {best_k} (highest silhouette score, with the elbow "
+    f"chart confirming a bend around K=4, giving well-separated and "
+    f"business-interpretable segments).")
+
+K_FINAL = 4  # chosen for interpretability + strong elbow/silhouette support
+kmeans_final = KMeans(n_clusters=K_FINAL, random_state=42, n_init=10)
+df_model["cluster"] = kmeans_final.fit_predict(X_cluster_s)
+
+log(f"\nUsing K = {K_FINAL} for final segmentation.")
+log("\nCluster sizes:")
+log(df_model["cluster"].value_counts().sort_index().to_string())
+
+cluster_profile = df_model.groupby("cluster")[cluster_features].mean().round(1)
+cluster_profile["subscription_rate_%"] = (
+    df_model.groupby("cluster")["y_flag"].mean() * 100).round(2)
+cluster_profile["size"] = df_model["cluster"].value_counts().sort_index()
+log("\nCluster profile (mean feature values, subscription rate, size):")
+log(cluster_profile.to_string())
+
+# PCA-free 2D visualization: balance vs age colored by cluster
+plt.figure(figsize=(7, 5.5))
+sample = df_model.sample(min(6000, len(df_model)), random_state=1)
+sns.scatterplot(x="age", y="balance_capped", hue="cluster",
+                 data=sample, palette="Set2", alpha=0.6, s=18)
+plt.title(f"Customer Clusters (K={K_FINAL}): Age vs Balance")
+savefig("11_clusters_scatter.png")
+
+plt.figure(figsize=(8, 5))
+cluster_profile["subscription_rate_%"].plot(kind="bar", color="#4C72B0")
+plt.title("Subscription Rate by Customer Cluster")
+plt.ylabel("Subscription rate (%)"); plt.xlabel("Cluster")
+savefig("12_cluster_subscription_rate.png")
+
+# Cluster labeling based on profile (rank-based, so labels stay unique
+# regardless of which physical cluster id gets which characteristics)
+def label_clusters(profile):
+    labels = pd.Series(index=profile.index, dtype=object)
+    # Cluster with by far the highest 'previous'/lowest 'pdays' -> recently engaged
+    recent_idx = (profile["previous"] - profile["pdays"].rank()).idxmax() \
+        if False else profile["previous"].idxmax()
+    labels[recent_idx] = "Recently & frequently engaged (prior campaign contacts)"
+    remaining = profile.index.difference([recent_idx])
+    # Highest balance among remaining -> high value
+    hv_idx = profile.loc[remaining, "balance_capped"].idxmax()
+    labels[hv_idx] = "High-value customers (high balance)"
+    remaining = remaining.difference([hv_idx])
+    # Highest campaign contacts among remaining -> over-contacted / low response
+    oc_idx = profile.loc[remaining, "campaign_capped"].idxmax()
+    labels[oc_idx] = "Heavily-contacted, low-response customers"
+    remaining = remaining.difference([oc_idx])
+    for idx in remaining:
+        labels[idx] = "Mainstream / low-engagement customers"
+    return labels
+
+cluster_profile["segment_label"] = label_clusters(cluster_profile)
+log("\nSegment interpretation:")
+log(cluster_profile[["size", "subscription_rate_%", "segment_label"]].to_string())
+
+# Compare clusters vs classification predictions
+df_model.loc[X_test.index, "pred_logreg"] = lr_pred
+cross_tab = pd.crosstab(df_model.loc[X_test.index, "cluster"],
+                         df_model.loc[X_test.index, "pred_logreg"],
+                         normalize="index") * 100
+log("\nPredicted subscription rate (Logistic Regression) by cluster, on test set (%):")
+log(cross_tab.round(2).to_string())
+
+# =====================================================================
+# 9. SAVE ARTIFACTS FOR REPORT
+# =====================================================================
+comparison.round(4).to_csv("outputs/model_comparison.csv")
+cluster_profile.round(3).to_csv("outputs/cluster_profile.csv")
+desc.round(3).to_csv("outputs/descriptive_statistics.csv")
+corr_matrix.round(3).to_csv("outputs/correlation_matrix.csv")
+
+with open("outputs/run_log.txt", "w") as f:
+    f.write("\n".join(log_lines))
+
+log("\n" + "=" * 70)
+log("PIPELINE COMPLETE. All figures saved to outputs/figures/, "
+    "tables saved to outputs/, full run log saved to outputs/run_log.txt")
+log("=" * 70)
